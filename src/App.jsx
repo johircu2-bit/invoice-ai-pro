@@ -1,708 +1,764 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
-// ── Currency config ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// THEME
+// ═══════════════════════════════════════════════════════════
+const T = {
+  bg:       "#07080d",
+  surface:  "#0e0f18",
+  card:     "#13141f",
+  cardHi:   "#181926",
+  border:   "#1e2030",
+  borderHi: "#2a2d45",
+  accent:   "#5b6af0",
+  accentHi: "#7b89f5",
+  accentGlow:"rgba(91,106,240,0.18)",
+  gold:     "#f0b429",
+  green:    "#2dd4a0",
+  red:      "#f5646e",
+  text:     "#e8eaf6",
+  muted:    "#6b6f8e",
+  dim:      "#3a3d55",
+};
+
+// ═══════════════════════════════════════════════════════════
+// CURRENCIES
+// ═══════════════════════════════════════════════════════════
 const CURRENCIES = {
-  USD: { symbol: "$",   locale: "en-US" },
-  EUR: { symbol: "€",   locale: "de-DE" },
-  GBP: { symbol: "£",   locale: "en-GB" },
-  BDT: { symbol: "৳",   locale: "en-US" }, // FIX 1: bn-BD unreliable in most browsers → fallback
-  INR: { symbol: "₹",   locale: "en-IN" },
-  CAD: { symbol: "CA$", locale: "en-CA" },
-  AUD: { symbol: "A$",  locale: "en-AU" },
-  JPY: { symbol: "¥",   locale: "ja-JP" },
-  SGD: { symbol: "S$",  locale: "en-SG" },
+  USD:{ symbol:"$",   locale:"en-US" },
+  EUR:{ symbol:"€",   locale:"de-DE" },
+  GBP:{ symbol:"£",   locale:"en-GB" },
+  BDT:{ symbol:"৳",   locale:"en-US" },
+  INR:{ symbol:"₹",   locale:"en-IN" },
+  CAD:{ symbol:"CA$", locale:"en-CA" },
+  AUD:{ symbol:"A$",  locale:"en-AU" },
+  JPY:{ symbol:"¥",   locale:"ja-JP" },
+  SGD:{ symbol:"S$",  locale:"en-SG" },
 };
 
-const C = {
-  bg:"#0a0a10", surface:"#13131c", card:"#1a1a26", border:"#252535",
-  accent:"#6c63ff", accentHi:"#8b84ff", accentGlow:"rgba(108,99,255,0.15)",
-  gold:"#f5c518", text:"#eeeef8", muted:"#7777a0", success:"#34d399", danger:"#f87171",
-};
-
-// ── Helpers ───────────────────────────────────────────────────────
-let _counter = 0;
-const nextInvoiceNo = () => `INV-${String(++_counter).padStart(4, "0")}`;
-
-const fmt = (amount, currency) => {
-  const cfg = CURRENCIES[currency] || CURRENCIES.USD;
-  const num = Number(amount);
-  // FIX 2: guard NaN — show fallback instead of "NaN"
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+const fmt = (n, cur="USD") => {
+  const cfg = CURRENCIES[cur] || CURRENCIES.USD;
+  const num = Number(n);
   if (!isFinite(num)) return `${cfg.symbol}0.00`;
   try {
-    return new Intl.NumberFormat(cfg.locale, {
-      style: "currency", currency,
-      minimumFractionDigits: currency === "JPY" ? 0 : 2,
-      maximumFractionDigits: currency === "JPY" ? 0 : 2,
+    return new Intl.NumberFormat(cfg.locale,{
+      style:"currency", currency:cur,
+      minimumFractionDigits: cur==="JPY"?0:2,
+      maximumFractionDigits: cur==="JPY"?0:2,
     }).format(num);
-  } catch {
-    return `${cfg.symbol}${num.toFixed(2)}`;
-  }
+  } catch { return `${cfg.symbol}${num.toFixed(2)}`; }
+};
+const today   = () => new Date().toISOString().slice(0,10);
+const addDays = (d,n)=>{ const dt=new Date(d+"T00:00:00Z"); dt.setUTCDate(dt.getUTCDate()+n); return dt.toISOString().slice(0,10); };
+const round2  = n => Math.round((n+Number.EPSILON)*100)/100;
+const uid     = () => Math.random().toString(36).slice(2,9);
+const newItem = () => ({ id:uid(), desc:"", qty:"1", rate:"0" });
+
+// ═══════════════════════════════════════════════════════════
+// LOCAL STORAGE
+// ═══════════════════════════════════════════════════════════
+const LS = {
+  get:(k,def)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; }},
+  set:(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} },
 };
 
-const today   = () => new Date().toISOString().slice(0, 10);
-// FIX 3: addDays — use UTC to avoid DST shift on date boundaries
-const addDays = (d, n) => {
-  const dt = new Date(d + "T00:00:00Z");
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return dt.toISOString().slice(0, 10);
-};
-const clamp  = (v, lo, hi) => Math.min(Math.max(Number(v) || 0, lo), hi);
-const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
-
-let _idSeed = 0;
-const newId   = () => `item-${++_idSeed}`;
-const newItem = () => ({ id: newId(), desc: "", qty: "1", rate: "0" });
-
-// ── Styles ────────────────────────────────────────────────────────
-const S = {
-  app:       { minHeight:"100vh", background:C.bg, fontFamily:"'DM Mono','Fira Mono',monospace", color:C.text, fontSize:"14px" },
-  header:    { background:`linear-gradient(135deg,${C.surface},#0e0e18)`, borderBottom:`1px solid ${C.border}`, padding:"18px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100, backdropFilter:"blur(16px)" },
-  logo:      { fontFamily:"'Syne','Bebas Neue',sans-serif", fontSize:"23px", letterSpacing:"4px", display:"flex", alignItems:"center", gap:"10px" },
-  badge:     { background:C.accentGlow, border:`1px solid ${C.accent}`, color:C.accentHi, borderRadius:"20px", padding:"2px 10px", fontSize:"10px", letterSpacing:"1.5px" },
-  main:      { maxWidth:"1260px", margin:"0 auto", padding:"32px 18px", display:"grid", gridTemplateColumns:"minmax(0,1.2fr) minmax(0,0.8fr)", gap:"24px" },
-  card:      { background:C.card, border:`1px solid ${C.border}`, borderRadius:"14px", padding:"22px" },
-  secTitle:  { fontFamily:"'Syne',sans-serif", fontSize:"11px", letterSpacing:"3px", color:C.muted, textTransform:"uppercase", marginBottom:"16px", display:"flex", alignItems:"center", gap:"8px" },
-  dot:       { width:"5px", height:"5px", borderRadius:"50%", background:C.accent, flexShrink:0 },
-  label:     { display:"block", fontSize:"10px", letterSpacing:"1.5px", color:C.muted, textTransform:"uppercase", marginBottom:"5px" },
-  input:     { width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:"8px", padding:"9px 12px", color:C.text, fontFamily:"'DM Mono','Fira Mono',monospace", fontSize:"13px", outline:"none", boxSizing:"border-box", transition:"border-color 0.2s,box-shadow 0.2s" },
-  textarea:  { width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:"8px", padding:"9px 12px", color:C.text, fontFamily:"'DM Mono','Fira Mono',monospace", fontSize:"13px", outline:"none", resize:"vertical", minHeight:"68px", boxSizing:"border-box" },
-  select:    { width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:"8px", padding:"9px 12px", color:C.text, fontFamily:"'DM Mono','Fira Mono',monospace", fontSize:"13px", outline:"none", boxSizing:"border-box", appearance:"none" },
-  row:       { display:"flex", gap:"12px", marginBottom:"13px" },
-  col:       { flex:1, minWidth:0 },
-  mb:        { marginBottom:"13px" },
-  divider:   { border:"none", borderTop:`1px solid ${C.border}`, margin:"16px 0" },
-  errMsg:    { color:C.danger, fontSize:"11px", marginTop:"3px" },
-  totalBox:  { background:C.surface, border:`1px solid ${C.border}`, borderRadius:"10px", padding:"14px", marginTop:"10px" },
-  totalRow:  { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 0", fontSize:"12px" },
-  totalFinal:{ display:"flex", justifyContent:"space-between", padding:"10px 0 0", marginTop:"8px", borderTop:`1px solid ${C.border}`, fontSize:"18px", fontWeight:"bold", color:C.gold },
-  btnPrimary:{ background:`linear-gradient(135deg,${C.accent},#9b5cf6)`, color:"#fff", border:"none", borderRadius:"9px", padding:"11px 18px", fontFamily:"'DM Mono',monospace", fontSize:"12px", letterSpacing:"1px", cursor:"pointer", fontWeight:"bold", display:"flex", alignItems:"center", justifyContent:"center", gap:"7px", width:"100%" },
-  btnGreen:  { background:`linear-gradient(135deg,${C.success},#059669)`, color:"#0a0a10", border:"none", borderRadius:"9px", padding:"11px 18px", fontFamily:"'DM Mono',monospace", fontSize:"12px", letterSpacing:"1px", cursor:"pointer", fontWeight:"bold", display:"flex", alignItems:"center", justifyContent:"center", gap:"7px" },
-  btnOutline:{ background:"transparent", color:C.accentHi, border:`1px solid ${C.accent}`, borderRadius:"9px", padding:"9px 15px", fontFamily:"'DM Mono',monospace", fontSize:"11px", letterSpacing:"1px", cursor:"pointer" },
-  btnDanger: { background:"transparent", color:C.danger, border:`1px solid ${C.danger}`, borderRadius:"6px", padding:"4px 9px", fontFamily:"'DM Mono',monospace", fontSize:"10px", cursor:"pointer" },
-  tabs:      { display:"flex", gap:"3px", background:C.surface, borderRadius:"10px", padding:"4px", marginBottom:"18px" },
-  tab:       { flex:1, padding:"8px 6px", borderRadius:"7px", border:"none", cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"11px", letterSpacing:"0.5px", transition:"all 0.2s" },
-  aiBox:     { background:`linear-gradient(135deg,rgba(108,99,255,0.07),rgba(155,92,246,0.04))`, border:`1px solid rgba(108,99,255,0.25)`, borderRadius:"12px", padding:"16px", marginTop:"14px", fontSize:"12px", lineHeight:"1.8", whiteSpace:"pre-wrap", maxHeight:"300px", overflowY:"auto" },
-  prev:      { background:"#fff", color:"#111", borderRadius:"12px", padding:"32px", fontFamily:"Georgia,serif", fontSize:"12px", lineHeight:"1.6" },
-  prevH:     { display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"22px" },
-  prevTitle: { fontSize:"28px", fontWeight:"900", color:"#5b54e8", letterSpacing:"5px", fontFamily:"sans-serif" },
-  prevTh:    { background:"#5b54e8", color:"#fff", padding:"7px 10px", textAlign:"left", fontFamily:"sans-serif", fontSize:"10px", letterSpacing:"1px" },
-  prevTd:    { padding:"7px 10px", borderBottom:"1px solid #f0f0f0" },
+const STATUS_COLORS = {
+  Draft:   { bg:"#1e2030", color:T.muted   },
+  Sent:    { bg:"rgba(91,106,240,0.15)", color:T.accentHi },
+  Paid:    { bg:"rgba(45,212,160,0.15)", color:T.green    },
+  Overdue: { bg:"rgba(245,100,110,0.15)", color:T.red     },
 };
 
-// ── ItemRow ───────────────────────────────────────────────────────
-const ItemRow = ({ item, idx, onChange, onRemove, canRemove, currency, errors }) => {
-  const lineTotal = round2(Number(item.qty || 0) * Number(item.rate || 0));
-  const inputStyle = (hasErr) => ({
-    ...S.input,
-    ...(hasErr ? { borderColor: C.danger } : {}),
-    // ensure consistent height regardless of error state below
-    height: "38px",
-    padding: "0 10px",
-  });
+// ═══════════════════════════════════════════════════════════
+// GLOBAL STYLES
+// ═══════════════════════════════════════════════════════════
+const GlobalStyles = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:${T.bg};color:${T.text};font-family:'Outfit',sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+    input,textarea,select{font-family:'Outfit',sans-serif}
+    input[type=number]::-webkit-inner-spin-button{opacity:0.4}
+    input:focus,textarea:focus,select:focus{outline:none!important;border-color:${T.accent}!important;box-shadow:0 0 0 3px ${T.accentGlow}!important}
+    button{cursor:pointer;font-family:'Outfit',sans-serif}
+    button:active{transform:scale(0.97)}
+    button:disabled{opacity:0.45;cursor:not-allowed;transform:none!important}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:${T.surface}}
+    ::-webkit-scrollbar-thumb{background:${T.border};border-radius:4px}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .fade-in{animation:fadeIn 0.25s ease}
+    @media(max-width:768px){
+      .hide-mobile{display:none!important}
+      .full-mobile{width:100%!important}
+    }
+  `}</style>
+);
+
+// ═══════════════════════════════════════════════════════════
+// UI PRIMITIVES
+// ═══════════════════════════════════════════════════════════
+const Input = ({ label, error, style={}, ...props }) => (
+  <div style={{ marginBottom:"14px", ...style }}>
+    {label && <div style={{ fontSize:"11px", letterSpacing:"1px", color:T.muted, textTransform:"uppercase", marginBottom:"5px", fontWeight:600 }}>{label}</div>}
+    <input style={{
+      width:"100%", background:T.surface, border:`1px solid ${error?T.red:T.border}`,
+      borderRadius:"8px", padding:"10px 12px", color:T.text, fontSize:"13px",
+      transition:"border-color 0.2s,box-shadow 0.2s",
+    }} {...props} />
+    {error && <div style={{ color:T.red, fontSize:"11px", marginTop:"4px" }}>{error}</div>}
+  </div>
+);
+
+const Textarea = ({ label, ...props }) => (
+  <div style={{ marginBottom:"14px" }}>
+    {label && <div style={{ fontSize:"11px", letterSpacing:"1px", color:T.muted, textTransform:"uppercase", marginBottom:"5px", fontWeight:600 }}>{label}</div>}
+    <textarea style={{
+      width:"100%", background:T.surface, border:`1px solid ${T.border}`,
+      borderRadius:"8px", padding:"10px 12px", color:T.text, fontSize:"13px",
+      resize:"vertical", minHeight:"72px", transition:"border-color 0.2s",
+    }} {...props} />
+  </div>
+);
+
+const Select = ({ label, children, ...props }) => (
+  <div style={{ marginBottom:"14px" }}>
+    {label && <div style={{ fontSize:"11px", letterSpacing:"1px", color:T.muted, textTransform:"uppercase", marginBottom:"5px", fontWeight:600 }}>{label}</div>}
+    <select style={{
+      width:"100%", background:T.surface, border:`1px solid ${T.border}`,
+      borderRadius:"8px", padding:"10px 12px", color:T.text, fontSize:"13px",
+      appearance:"none",
+    }} {...props}>{children}</select>
+  </div>
+);
+
+const Btn = ({ variant="primary", style={}, children, ...p }) => {
+  const base = { border:"none", borderRadius:"9px", padding:"10px 18px", fontSize:"13px", fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:"6px", transition:"opacity 0.15s,transform 0.1s", letterSpacing:"0.2px" };
+  const variants = {
+    primary:  { background:`linear-gradient(135deg,${T.accent},#7b5cf0)`, color:"#fff" },
+    green:    { background:`linear-gradient(135deg,${T.green},#059669)`, color:"#0a0f0d" },
+    outline:  { background:"transparent", color:T.accentHi, border:`1px solid ${T.accent}` },
+    ghost:    { background:"transparent", color:T.muted, border:`1px solid ${T.border}` },
+    danger:   { background:"transparent", color:T.red, border:`1px solid ${T.red}` },
+  };
+  return <button style={{ ...base, ...variants[variant], ...style }} {...p}>{children}</button>;
+};
+
+const Card = ({ children, style={} }) => (
+  <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:"14px", padding:"20px", ...style }}>
+    {children}
+  </div>
+);
+
+const SectionTitle = ({ children, action }) => (
+  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"16px" }}>
+    <div style={{ fontSize:"11px", letterSpacing:"2.5px", color:T.muted, textTransform:"uppercase", fontWeight:600, display:"flex", alignItems:"center", gap:"8px" }}>
+      <div style={{ width:"4px", height:"14px", borderRadius:"2px", background:T.accent }} />
+      {children}
+    </div>
+    {action}
+  </div>
+);
+
+const StatusBadge = ({ status }) => {
+  const s = STATUS_COLORS[status] || STATUS_COLORS.Draft;
   return (
-    <div style={{ marginBottom: errors ? "14px" : "8px" }}>
-      {/* Main row — fixed columns, no overflow */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 70px 90px 78px 32px",
-        gap: "6px",
-        alignItems: "center",
-      }}>
-        {/* Description */}
-        <input
-          style={inputStyle(errors?.desc)}
-          value={item.desc}
-          placeholder="Description"
-          onChange={e => onChange(idx, "desc", e.target.value)}
-        />
-        {/* Qty */}
-        <input
-          type="number"
-          style={{ ...inputStyle(errors?.qty), textAlign: "right" }}
-          value={item.qty}
-          min="0.01"
-          step="0.01"
-          onChange={e => onChange(idx, "qty", e.target.value)}
-        />
-        {/* Rate */}
-        <input
-          type="number"
-          style={{ ...inputStyle(errors?.rate), textAlign: "right" }}
-          value={item.rate}
-          min="0"
-          step="0.01"
-          onChange={e => onChange(idx, "rate", e.target.value)}
-        />
-        {/* Line total — always right-aligned, no wrap */}
-        <div style={{
-          fontSize: "12px",
-          color: C.muted,
-          textAlign: "right",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          lineHeight: "38px",
-        }}>
-          {fmt(lineTotal, currency)}
+    <span style={{ background:s.bg, color:s.color, borderRadius:"20px", padding:"3px 10px", fontSize:"11px", fontWeight:600, letterSpacing:"0.5px" }}>
+      {status}
+    </span>
+  );
+};
+
+const Divider = () => <div style={{ borderTop:`1px solid ${T.border}`, margin:"16px 0" }} />;
+
+// ═══════════════════════════════════════════════════════════
+// ITEM ROW — mobile-friendly
+// ═══════════════════════════════════════════════════════════
+const ItemRow = ({ item, idx, onChange, onRemove, canRemove, currency, isMobile }) => {
+  const lineTotal = round2(Number(item.qty||0)*Number(item.rate||0));
+  const inp = (extra={}) => ({
+    background:T.surface, border:`1px solid ${T.border}`, borderRadius:"8px",
+    padding:"8px 10px", color:T.text, fontSize:"13px", width:"100%",
+    transition:"border-color 0.2s", ...extra,
+  });
+
+  if (isMobile) {
+    // Mobile: stacked layout
+    return (
+      <div style={{ background:T.cardHi, border:`1px solid ${T.border}`, borderRadius:"10px", padding:"12px", marginBottom:"10px" }} className="fade-in">
+        <div style={{ display:"flex", gap:"8px", marginBottom:"8px" }}>
+          <input style={{ ...inp(), flex:1 }} value={item.desc} placeholder="Description / Service"
+            onChange={e=>onChange(idx,"desc",e.target.value)} />
+          <button type="button" onClick={()=>canRemove&&onRemove(idx)} disabled={!canRemove}
+            style={{ background:"transparent", border:`1px solid ${T.red}`, color:T.red, borderRadius:"7px", padding:"0 10px", fontSize:"12px", flexShrink:0 }}>✕</button>
         </div>
-        {/* Remove button */}
-        <button
-          type="button"
-          style={{
-            ...S.btnDanger,
-            width: "28px",
-            height: "28px",
-            padding: "0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: canRemove ? 1 : 0.3,
-            flexShrink: 0,
-          }}
-          onClick={() => canRemove && onRemove(idx)}
-          disabled={!canRemove}
-        >✕</button>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"8px", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:"10px", color:T.muted, marginBottom:"3px" }}>QTY</div>
+            <input type="number" style={{ ...inp(), textAlign:"right" }} value={item.qty} min="0.01" step="0.01"
+              onChange={e=>onChange(idx,"qty",e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontSize:"10px", color:T.muted, marginBottom:"3px" }}>RATE</div>
+            <input type="number" style={{ ...inp(), textAlign:"right" }} value={item.rate} min="0" step="0.01"
+              onChange={e=>onChange(idx,"rate",e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontSize:"10px", color:T.muted, marginBottom:"3px" }}>AMOUNT</div>
+            <div style={{ textAlign:"right", fontSize:"13px", fontWeight:600, color:T.accentHi, padding:"8px 10px", background:T.surface, borderRadius:"8px", border:`1px solid ${T.border}` }}>
+              {fmt(lineTotal,currency)}
+            </div>
+          </div>
+        </div>
       </div>
-      {/* Error messages below — only shown when needed, don't shift grid */}
-      {(errors?.desc || errors?.qty || errors?.rate) && (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 70px 90px 78px 32px",
-          gap: "6px",
-          marginTop: "2px",
-        }}>
-          <div style={S.errMsg}>{errors?.desc || ""}</div>
-          <div style={S.errMsg}>{errors?.qty || ""}</div>
-          <div style={S.errMsg}>{errors?.rate || ""}</div>
-          <div /><div />
-        </div>
-      )}
+    );
+  }
+
+  // Desktop: grid layout
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 80px 100px 90px 32px", gap:"6px", alignItems:"center", marginBottom:"7px" }} className="fade-in">
+      <input style={inp()} value={item.desc} placeholder="Description / Service"
+        onChange={e=>onChange(idx,"desc",e.target.value)} />
+      <input type="number" style={{ ...inp(), textAlign:"right" }} value={item.qty} min="0.01" step="0.01"
+        onChange={e=>onChange(idx,"qty",e.target.value)} />
+      <input type="number" style={{ ...inp(), textAlign:"right" }} value={item.rate} min="0" step="0.01"
+        onChange={e=>onChange(idx,"rate",e.target.value)} />
+      <div style={{ textAlign:"right", fontSize:"13px", fontWeight:600, color:T.accentHi, padding:"8px 10px", background:T.surface, borderRadius:"8px", border:`1px solid ${T.border}`, whiteSpace:"nowrap" }}>
+        {fmt(lineTotal,currency)}
+      </div>
+      <button type="button" onClick={()=>canRemove&&onRemove(idx)} disabled={!canRemove}
+        style={{ background:"transparent", border:`1px solid ${T.red}`, color:T.red, borderRadius:"7px", width:"28px", height:"28px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"11px", flexShrink:0, opacity:canRemove?1:0.3 }}>✕</button>
     </div>
   );
 };
 
-// ── App ───────────────────────────────────────────────────────────
-export default function App() {
-  const [tab, setTab]             = useState("invoice");
-  const [form, setForm]           = useState(() => ({
-    invoiceNo:   nextInvoiceNo(),
-    date:        today(),
-    dueDate:     addDays(today(), 30),
-    fromName:"", fromEmail:"", fromAddress:"", fromPhone:"",
-    toName:"",   toEmail:"",   toAddress:"",   toPhone:"",
-    currency:"USD", tax:"0", discount:"0",
-    notes:"Payment due within 30 days. Thank you for your business.",
-    projectName:"", projectDesc:"", budget:"", timeline:"",
-  }));
-  const [items,      setItems]      = useState([newItem()]);
-  const [errors,     setErrors]     = useState({});
-  const [itemErrors, setItemErrors] = useState({});
-  const [aiText,     setAiText]     = useState("");
-  const [aiLoading,  setAiLoading]  = useState(false);
-  const [aiErr,      setAiErr]      = useState("");
-  const [copyOk,     setCopyOk]     = useState(false);
-  // FIX 6: printReady flag — ensures ref is mounted before print
-  const [printReady, setPrintReady] = useState(false);
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD VIEW
+// ═══════════════════════════════════════════════════════════
+const Dashboard = ({ invoices, onNew, onOpen }) => {
+  const stats = {
+    total:   invoices.length,
+    paid:    invoices.filter(i=>i.status==="Paid").length,
+    pending: invoices.filter(i=>i.status==="Sent").length,
+    revenue: invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+i.total,0),
+  };
+  const recent = [...invoices].sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,5);
+
+  return (
+    <div className="fade-in">
+      {/* Stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:"12px", marginBottom:"24px" }}>
+        {[
+          { label:"Total Invoices", value:stats.total, icon:"📄", color:T.accentHi },
+          { label:"Paid",           value:stats.paid,  icon:"✅", color:T.green },
+          { label:"Pending",        value:stats.pending,icon:"⏳", color:T.gold },
+          { label:"Revenue",        value:fmt(stats.revenue,"USD"), icon:"💰", color:T.gold, big:true },
+        ].map(s => (
+          <Card key={s.label} style={{ textAlign:"center" }}>
+            <div style={{ fontSize:"22px", marginBottom:"6px" }}>{s.icon}</div>
+            <div style={{ fontSize: s.big?"18px":"24px", fontWeight:700, color:s.color, fontFamily:"'Space Mono',monospace" }}>{s.value}</div>
+            <div style={{ fontSize:"11px", color:T.muted, marginTop:"3px" }}>{s.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Recent */}
+      <Card>
+        <SectionTitle action={<Btn variant="primary" style={{ padding:"7px 14px", fontSize:"12px" }} onClick={onNew}>+ New Invoice</Btn>}>
+          Recent Invoices
+        </SectionTitle>
+        {recent.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"40px 0", color:T.muted }}>
+            <div style={{ fontSize:"36px", marginBottom:"12px" }}>📭</div>
+            <div>No invoices yet — create your first one!</div>
+            <Btn variant="primary" style={{ margin:"16px auto 0", width:"fit-content" }} onClick={onNew}>+ Create Invoice</Btn>
+          </div>
+        ) : (
+          <div>
+            {/* Table header — hidden on mobile */}
+            <div className="hide-mobile" style={{ display:"grid", gridTemplateColumns:"1fr 120px 100px 90px 80px", gap:"12px", padding:"0 8px 10px", borderBottom:`1px solid ${T.border}`, marginBottom:"8px" }}>
+              {["Invoice","Client","Date","Amount","Status"].map(h=>(
+                <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600 }}>{h}</div>
+              ))}
+            </div>
+            {recent.map(inv=>(
+              <div key={inv.id} onClick={()=>onOpen(inv.id)}
+                style={{ display:"grid", gridTemplateColumns:"1fr 120px 100px 90px 80px", gap:"12px", padding:"10px 8px", borderRadius:"8px", cursor:"pointer", transition:"background 0.15s", alignItems:"center" }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.cardHi}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <div style={{ fontWeight:600, fontSize:"13px" }}>{inv.invoiceNo}</div>
+                <div style={{ color:T.muted, fontSize:"12px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.toName||"—"}</div>
+                <div style={{ color:T.muted, fontSize:"12px" }} className="hide-mobile">{inv.date}</div>
+                <div style={{ fontWeight:600, fontFamily:"'Space Mono',monospace", fontSize:"12px" }}>{fmt(inv.total, inv.currency)}</div>
+                <div><StatusBadge status={inv.status} /></div>
+              </div>
+            ))}
+            {invoices.length > 5 && (
+              <div style={{ textAlign:"center", marginTop:"12px" }}>
+                <Btn variant="ghost" style={{ fontSize:"12px", padding:"7px 14px" }} onClick={()=>{}}>View all {invoices.length} invoices</Btn>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════
+// INVOICE EDITOR
+// ═══════════════════════════════════════════════════════════
+const InvoiceEditor = ({ invoice, clients, onSave, onDelete, onBack, isMobile }) => {
+  const [form, setForm] = useState(invoice);
+  const [items, setItems] = useState(invoice.items||[newItem()]);
+  const [tab, setTab] = useState("details"); // details | items | preview
+  const [aiText, setAiText] = useState(invoice.aiProposal||"");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiErr, setAiErr] = useState("");
+  const [saved, setSaved] = useState(false);
   const printRef = useRef(null);
 
-  useEffect(() => {
-    if (tab === "preview") setPrintReady(true);
-    else setPrintReady(false);
-  }, [tab]);
+  const set = k => e => setForm(f=>({...f,[k]:e.target.value}));
 
-  const set = useCallback(k => e => setForm(f => ({ ...f, [k]: e.target.value })), []);
+  // Calculations
+  const subtotal  = round2(items.reduce((s,it)=>s+round2(Number(it.qty||0)*Number(it.rate||0)),0));
+  const discAmt   = round2(subtotal*(Math.min(Math.max(Number(form.discount)||0,0),100))/100);
+  const afterDisc = round2(subtotal-discAmt);
+  const taxAmt    = round2(afterDisc*(Math.min(Math.max(Number(form.tax)||0,0),100))/100);
+  const total     = round2(afterDisc+taxAmt);
 
-  // ── Calculations ──
-  const subtotal  = round2(items.reduce((s, it) => s + round2(Number(it.qty || 0) * Number(it.rate || 0)), 0));
-  const discAmt   = round2(subtotal * clamp(form.discount, 0, 100) / 100);
-  const afterDisc = round2(subtotal - discAmt);
-  const taxAmt    = round2(afterDisc * clamp(form.tax, 0, 100) / 100);
-  const total     = round2(afterDisc + taxAmt);
+  const updateItem = useCallback((i,k,v)=>setItems(arr=>arr.map((it,idx)=>idx===i?{...it,[k]:v}:it)),[]);
+  const addItem    = ()=>setItems(arr=>[...arr,newItem()]);
+  const removeItem = useCallback(i=>setItems(arr=>arr.length>1?arr.filter((_,idx)=>idx!==i):arr),[]);
 
-  // ── Item handlers ──
-  const updateItem = useCallback((i, k, v) =>
-    setItems(arr => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it)), []);
-  const addItem    = useCallback(() => setItems(arr => [...arr, newItem()]), []);
-  const removeItem = useCallback(i =>
-    setItems(arr => arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr), []);
-
-  // ── Validation — plain function, called only on button click ──
-  const validate = () => {
-    const e = {}, ie = {};
-    if (!form.fromName.trim())  e.fromName  = "Required";
-    if (!form.toName.trim())    e.toName    = "Required";
-    if (!form.invoiceNo.trim()) e.invoiceNo = "Required";
-    // FIX 7: validate all items including ones with desc but qty=0
-    items.forEach((it, i) => {
-      const r = {};
-      if (!it.desc.trim())         r.desc = "Required";
-      if (!(Number(it.qty) > 0))   r.qty  = "Must be > 0";
-      if (Number(it.rate) < 0)     r.rate = "Must be ≥ 0";
-      if (Object.keys(r).length)   ie[i]  = r;
-    });
-    setErrors(e); setItemErrors(ie);
-    return !Object.keys(e).length && !Object.keys(ie).length;
+  const handleSave = (status) => {
+    const updated = { ...form, items, total, subtotal, aiProposal:aiText, updatedAt:Date.now(), status:status||form.status };
+    onSave(updated);
+    setSaved(true);
+    setTimeout(()=>setSaved(false),2000);
   };
 
-  // ── AI Proposal ──
+  const handlePrint = () => {
+    if (tab !== "preview") { setTab("preview"); setTimeout(handlePrint, 500); return; }
+    if (!printRef.current) return;
+    const w = window.open("","_blank");
+    if (!w) { alert("Allow popups to print/save PDF"); return; }
+    w.document.write(`<!DOCTYPE html><html><head><title>${form.invoiceNo}</title>
+    <style>*{box-sizing:border-box}body{margin:0;padding:24px;font-family:'Outfit',Georgia,serif;font-size:12px;color:#111}
+    table{width:100%;border-collapse:collapse}th{background:#5b6af0;color:#fff;padding:8px 10px;text-align:left;font-size:10px}
+    td{padding:8px 10px;border-bottom:1px solid #eee}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media print{body{padding:12px}}</style></head>
+    <body>${printRef.current.innerHTML}</body></html>`);
+    w.document.close(); w.focus(); setTimeout(()=>w.print(),300);
+  };
+
   const generateProposal = async () => {
     setAiLoading(true); setAiErr(""); setAiText("");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content:
-            `Write a professional business proposal:\n\nClient: ${form.toName || "Client"}\nProject: ${form.projectName || "Project"}\nDescription: ${form.projectDesc || "Custom development"}\nBudget: ${form.budget ? fmt(form.budget, form.currency) : fmt(total, form.currency)}\nTimeline: ${form.timeline || "TBD"}\nProvider: ${form.fromName || "Our Company"}\n\nWrite 4 sections:\n1. Executive Summary\n2. Scope & Deliverables (bullets)\n3. Timeline & Milestones\n4. Investment & Terms\n\nBe concise, professional, persuasive.`
-          }],
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000,
+          messages:[{ role:"user", content:`Write a professional business proposal:\nClient: ${form.toName||"Client"}\nProject: ${form.projectName||"Project"}\nDescription: ${form.projectDesc||"Services"}\nBudget: ${fmt(form.budget||total,form.currency)}\nTimeline: ${form.timeline||"TBD"}\nProvider: ${form.fromName||"Provider"}\n\nWrite 4 sections: 1.Executive Summary 2.Scope & Deliverables (bullets) 3.Timeline & Milestones 4.Investment & Terms. Be concise and professional.` }]
         }),
       });
-      if (!res.ok) {
-        // FIX 8: parse error body for clearer message
-        let msg = `API error ${res.status}`;
-        try { const d = await res.json(); msg = d?.error?.message || msg; } catch {}
-        throw new Error(msg);
-      }
+      if (!res.ok) throw new Error(`API ${res.status}`);
       const d = await res.json();
-      const text = d.content?.map(c => c.text || "").join("") || "";
-      if (!text) throw new Error("Empty response from API");
+      const text = d.content?.map(c=>c.text||"").join("")||"";
+      if (!text) throw new Error("Empty response");
       setAiText(text);
-    } catch (err) {
-      setAiErr(`Generation failed: ${err.message}. Please retry.`);
-    } finally {
-      setAiLoading(false);
-    }
+    } catch(err) { setAiErr(`Failed: ${err.message}`); }
+    finally { setAiLoading(false); }
   };
 
-  // ── Clipboard ──
-  const handleCopy = async () => {
-    if (!aiText) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(aiText);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = aiText;
-        ta.style.position = "fixed"; ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      setCopyOk(true);
-      setTimeout(() => setCopyOk(false), 2000);
-    } catch {
-      alert("Copy failed — please select and copy the text manually.");
-    }
-  };
+  const tabs = isMobile
+    ? [["details","📋"],["items","📦"],["preview","👁"]]
+    : [["details","📋 Details"],["items","📦 Items"],["proposal","✨ Proposal"],["preview","👁 Preview"]];
 
-  // ── Print / PDF ──
-  // FIX 9+: triggerPrint defined INSIDE handlePrint so it always
-  // captures the latest form/printRef values — no stale closure risk.
-  const handlePrint = useCallback(() => {
-    const doprint = () => {
-      if (!printRef.current) return;
-      const w = window.open("", "_blank");
-      if (!w) { alert("Popup blocked — please allow popups for this site."); return; }
-      const html = printRef.current.innerHTML;
-      w.document.write(`<!DOCTYPE html><html><head>
-        <title>Invoice ${form.invoiceNo}</title>
-        <style>
-          *{box-sizing:border-box}
-          body{margin:0;padding:28px;font-family:Georgia,serif;font-size:12px;color:#111}
-          table{width:100%;border-collapse:collapse}
-          th{background:#5b54e8;color:#fff;padding:7px 10px;text-align:left;font-size:10px;letter-spacing:1px}
-          td{padding:7px 10px;border-bottom:1px solid #eee}
-          @media print{body{padding:12px}}
-        </style>
-      </head><body>${html}</body></html>`);
-      w.document.close();
-      w.focus();
-      setTimeout(() => w.print(), 300);
-    };
-    if (!printReady || !printRef.current) {
-      setTab("preview");
-      setTimeout(doprint, 500);
-      return;
-    }
-    doprint();
-  }, [printReady, form.invoiceNo]);
-
-  // ── New Invoice ──
-  const handleNew = useCallback(() => {
-    setForm(f => ({
-      ...f,
-      invoiceNo: nextInvoiceNo(),
-      date: today(), dueDate: addDays(today(), 30),
-      toName:"", toEmail:"", toAddress:"", toPhone:"",
-      notes:"Payment due within 30 days. Thank you for your business.",
-      projectName:"", projectDesc:"", budget:"", timeline:"",
-      tax:"0", discount:"0",
-    }));
-    setItems([newItem()]);
-    setAiText(""); setErrors({}); setItemErrors({});
-    setTab("invoice");
-  }, []);
-
-  const currencyKeys = Object.keys(CURRENCIES);
-  const tabStyle = k => ({ ...S.tab, ...(tab === k ? { background:C.accent, color:"#fff" } : { background:"transparent", color:C.muted }) });
-
-  // FIX 10: header buttons use type="button" to avoid accidental submit
   return (
-    <div style={S.app}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@300;400;500&display=swap');
-        input:focus,textarea:focus,select:focus{border-color:${C.accent}!important;box-shadow:0 0 0 2px ${C.accentGlow}}
-        button:active{transform:scale(0.97)}
-        button:disabled{opacity:0.5;cursor:not-allowed!important}
-        select option{background:${C.surface}}
-        ::-webkit-scrollbar{width:4px}
-        ::-webkit-scrollbar-track{background:${C.surface}}
-        ::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
-        @media(max-width:860px){.mg{grid-template-columns:1fr!important}}
-        @media(max-width:560px){.item-row{grid-template-columns:1fr 60px 80px auto!important}}
-      `}</style>
-
-      <header style={S.header}>
-        <div style={S.logo}>
-          <span>⚡</span>
-          <span>INVOICE<span style={{ color:C.accent }}>AI</span></span>
-          <span style={S.badge}>PRO</span>
+    <div className="fade-in">
+      {/* Top bar */}
+      <div style={{ display:"flex", alignItems:"center", gap:"12px", marginBottom:"20px", flexWrap:"wrap" }}>
+        <button type="button" onClick={onBack}
+          style={{ background:T.card, border:`1px solid ${T.border}`, color:T.muted, borderRadius:"8px", padding:"8px 12px", fontSize:"12px", display:"flex", alignItems:"center", gap:"6px" }}>
+          ← Back
+        </button>
+        <div style={{ fontFamily:"'Space Mono',monospace", fontSize:"15px", fontWeight:700, flex:1, color:T.text }}>
+          {form.invoiceNo}
         </div>
-        <div style={{ display:"flex", gap:"10px" }}>
-          <button type="button" style={S.btnOutline} onClick={() => setTab("preview")}>👁 Preview</button>
-          <button type="button" style={S.btnGreen}   onClick={handlePrint}>🖨 Print / PDF</button>
-        </div>
-      </header>
+        <Select style={{ margin:0, width:"auto" }} value={form.status} onChange={set("status")}>
+          {["Draft","Sent","Paid","Overdue"].map(s=><option key={s}>{s}</option>)}
+        </Select>
+        <Btn variant="ghost" style={{ padding:"8px 14px", fontSize:"12px" }} onClick={handlePrint}>🖨 PDF</Btn>
+        <Btn variant="green" style={{ padding:"8px 16px", fontSize:"12px" }} onClick={()=>handleSave()}>
+          {saved?"✅ Saved!":"💾 Save"}
+        </Btn>
+      </div>
 
-      <div style={S.main} className="mg">
-        {/* LEFT */}
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:"4px", background:T.surface, borderRadius:"10px", padding:"4px", marginBottom:"20px", overflowX:"auto" }}>
+        {tabs.map(([k,lbl])=>(
+          <button type="button" key={k} onClick={()=>setTab(k)} style={{
+            flex:1, minWidth:"fit-content", padding:"9px 10px", borderRadius:"7px", border:"none",
+            background: tab===k ? T.accent : "transparent",
+            color: tab===k ? "#fff" : T.muted,
+            fontSize:"12px", fontWeight:600, whiteSpace:"nowrap", transition:"all 0.2s",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns: isMobile?"1fr":"1fr 300px", gap:"20px" }}>
+        {/* LEFT PANEL */}
         <div>
-          <div style={S.tabs}>
-            {[["invoice","📄 Invoice"],["proposal","✨ Proposal"],["preview","👁 Preview"]].map(([k,lbl]) => (
-              <button type="button" key={k} style={tabStyle(k)} onClick={() => setTab(k)}>{lbl}</button>
-            ))}
-          </div>
-
-          {/* INVOICE TAB */}
-          {tab === "invoice" && (
-            <div style={S.card}>
-              <div style={S.secTitle}><span style={S.dot}/>Invoice Details</div>
-              <div style={S.row}>
-                <div style={S.col}>
-                  <label style={S.label}>Invoice #</label>
-                  <input style={{ ...S.input, ...(errors.invoiceNo ? { borderColor:C.danger } : {}) }}
-                    value={form.invoiceNo} onChange={set("invoiceNo")} />
-                  {errors.invoiceNo && <div style={S.errMsg}>{errors.invoiceNo}</div>}
-                </div>
-                <div style={S.col}>
-                  <label style={S.label}>Currency</label>
-                  <select style={S.select} value={form.currency} onChange={set("currency")}>
-                    {currencyKeys.map(c => <option key={c} value={c}>{c} {CURRENCIES[c].symbol}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={S.row}>
-                <div style={S.col}>
-                  <label style={S.label}>Issue Date</label>
-                  <input type="date" style={S.input} value={form.date} onChange={set("date")} />
-                </div>
-                <div style={S.col}>
-                  <label style={S.label}>Due Date</label>
-                  <input type="date" style={S.input} value={form.dueDate} onChange={set("dueDate")} />
-                </div>
+          {/* DETAILS TAB */}
+          {tab==="details" && (
+            <Card className="fade-in">
+              <SectionTitle>Invoice Info</SectionTitle>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
+                <Input label="Invoice #" value={form.invoiceNo} onChange={set("invoiceNo")} />
+                <Select label="Currency" value={form.currency} onChange={set("currency")}>
+                  {Object.keys(CURRENCIES).map(c=><option key={c} value={c}>{c} {CURRENCIES[c].symbol}</option>)}
+                </Select>
+                <Input label="Issue Date" type="date" value={form.date} onChange={set("date")} />
+                <Input label="Due Date" type="date" value={form.dueDate} onChange={set("dueDate")} />
               </div>
 
-              <hr style={S.divider}/>
-              <div style={S.secTitle}><span style={S.dot}/>From (You)</div>
-              <div style={S.mb}>
-                <label style={S.label}>Name / Company *</label>
-                <input style={{ ...S.input, ...(errors.fromName ? { borderColor:C.danger } : {}) }}
-                  value={form.fromName} onChange={set("fromName")} placeholder="Your Name or Company" />
-                {errors.fromName && <div style={S.errMsg}>{errors.fromName}</div>}
+              <Divider/>
+              <SectionTitle>From (You)</SectionTitle>
+              <Input label="Name / Company *" value={form.fromName} onChange={set("fromName")} placeholder="Your name or company" />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
+                <Input label="Email" type="email" value={form.fromEmail} onChange={set("fromEmail")} placeholder="you@email.com" />
+                <Input label="Phone" value={form.fromPhone} onChange={set("fromPhone")} placeholder="+880..." />
               </div>
-              <div style={S.row}>
-                <div style={S.col}>
-                  <label style={S.label}>Email</label>
-                  <input style={S.input} value={form.fromEmail} onChange={set("fromEmail")} placeholder="you@email.com" />
-                </div>
-                <div style={S.col}>
-                  <label style={S.label}>Phone</label>
-                  <input style={S.input} value={form.fromPhone} onChange={set("fromPhone")} placeholder="+880 1xxx" />
-                </div>
-              </div>
-              <div style={S.mb}>
-                <label style={S.label}>Address</label>
-                <textarea style={S.textarea} rows={2} value={form.fromAddress} onChange={set("fromAddress")} placeholder="Street, City, Country" />
-              </div>
+              <Textarea label="Address" value={form.fromAddress} onChange={set("fromAddress")} placeholder="Street, City, Country" />
 
-              <hr style={S.divider}/>
-              <div style={S.secTitle}><span style={S.dot}/>Bill To (Client)</div>
-              <div style={S.mb}>
-                <label style={S.label}>Client Name *</label>
-                <input style={{ ...S.input, ...(errors.toName ? { borderColor:C.danger } : {}) }}
-                  value={form.toName} onChange={set("toName")} placeholder="Client / Company" />
-                {errors.toName && <div style={S.errMsg}>{errors.toName}</div>}
+              <Divider/>
+              <SectionTitle>Bill To (Client)</SectionTitle>
+              <Input label="Client Name *" value={form.toName} onChange={set("toName")} placeholder="Client / Company" />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
+                <Input label="Email" type="email" value={form.toEmail} onChange={set("toEmail")} placeholder="client@email.com" />
+                <Input label="Phone" value={form.toPhone} onChange={set("toPhone")} placeholder="+1..." />
               </div>
-              <div style={S.row}>
-                <div style={S.col}>
-                  <label style={S.label}>Email</label>
-                  <input style={S.input} value={form.toEmail} onChange={set("toEmail")} placeholder="client@email.com" />
-                </div>
-                <div style={S.col}>
-                  <label style={S.label}>Phone</label>
-                  <input style={S.input} value={form.toPhone} onChange={set("toPhone")} placeholder="+1 555 000" />
-                </div>
-              </div>
-              <div style={S.mb}>
-                <label style={S.label}>Address</label>
-                <textarea style={S.textarea} rows={2} value={form.toAddress} onChange={set("toAddress")} placeholder="Client address" />
-              </div>
+              <Textarea label="Address" value={form.toAddress} onChange={set("toAddress")} placeholder="Client address" />
 
-              <hr style={S.divider}/>
-              <div style={S.secTitle}><span style={S.dot}/>Line Items</div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 90px 78px 32px", gap:"6px", marginBottom:"6px" }}>
-                {[["Description","left"],["Qty","right"],["Unit Rate","right"],["Amount","right"],["","right"]].map(([h, align]) => (
-                  <div key={h} style={{ fontSize:"10px", color:C.muted, letterSpacing:"1px", textTransform:"uppercase", textAlign: align }}>{h}</div>
-                ))}
-              </div>
-              {items.map((it, i) => (
+              <Divider/>
+              <Textarea label="Notes / Payment Terms" value={form.notes} onChange={set("notes")} />
+            </Card>
+          )}
+
+          {/* ITEMS TAB */}
+          {tab==="items" && (
+            <Card className="fade-in">
+              <SectionTitle>Line Items</SectionTitle>
+
+              {!isMobile && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 80px 100px 90px 32px", gap:"6px", marginBottom:"8px", padding:"0 2px" }}>
+                  {[["Description","left"],["Qty","right"],["Rate","right"],["Amount","right"],["",""]].map(([h,a])=>(
+                    <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600, textAlign:a }}>{h}</div>
+                  ))}
+                </div>
+              )}
+
+              {items.map((it,i)=>(
                 <ItemRow key={it.id} item={it} idx={i}
                   onChange={updateItem} onRemove={removeItem}
-                  canRemove={items.length > 1}
-                  currency={form.currency}
-                  errors={itemErrors[i]} />
+                  canRemove={items.length>1} currency={form.currency} isMobile={isMobile} />
               ))}
-              <button type="button" style={{ ...S.btnOutline, marginTop:"6px", fontSize:"12px" }} onClick={addItem}>+ Add Item</button>
 
-              <div style={S.totalBox}>
-                <div style={S.totalRow}>
-                  <span style={{ color:C.muted }}>Subtotal</span>
-                  <span>{fmt(subtotal, form.currency)}</span>
-                </div>
-                <div style={{ ...S.totalRow, marginTop:"6px" }}>
-                  <span style={{ color:C.muted }}>Discount (%)</span>
-                  <input type="number" min="0" max="100" step="0.1"
-                    style={{ ...S.input, width:"80px", textAlign:"right", padding:"5px 8px" }}
-                    value={form.discount} onChange={set("discount")} />
-                </div>
-                {Number(form.discount) > 0 && (
-                  <div style={S.totalRow}>
-                    <span style={{ color:C.success }}>Discount</span>
-                    <span style={{ color:C.success }}>−{fmt(discAmt, form.currency)}</span>
+              <Btn type="button" variant="outline" style={{ width:"100%", marginTop:"8px", padding:"9px" }} onClick={addItem}>
+                + Add Line Item
+              </Btn>
+
+              <Divider/>
+
+              {/* Totals */}
+              <div style={{ background:T.surface, borderRadius:"10px", padding:"14px" }}>
+                {[
+                  ["Subtotal", fmt(subtotal,form.currency), false],
+                  ...(Number(form.discount)>0?[["Discount", `-${fmt(discAmt,form.currency)}`, true]]:[]),
+                  ...(Number(form.tax)>0?[["Tax Amount", fmt(taxAmt,form.currency), false]]:[]),
+                ].map(([label,value,green])=>(
+                  <div key={label} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", fontSize:"13px" }}>
+                    <span style={{ color:T.muted }}>{label}</span>
+                    <span style={{ color:green?T.green:T.text }}>{value}</span>
                   </div>
-                )}
-                <div style={{ ...S.totalRow, marginTop:"6px" }}>
-                  <span style={{ color:C.muted }}>Tax / VAT (%)</span>
-                  <input type="number" min="0" max="100" step="0.1"
-                    style={{ ...S.input, width:"80px", textAlign:"right", padding:"5px 8px" }}
-                    value={form.tax} onChange={set("tax")} />
-                </div>
-                {Number(form.tax) > 0 && (
-                  <div style={S.totalRow}>
-                    <span style={{ color:C.muted }}>Tax Amount</span>
-                    <span>{fmt(taxAmt, form.currency)}</span>
+                ))}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px", margin:"12px 0 8px" }}>
+                  <div>
+                    <div style={{ fontSize:"10px", color:T.muted, letterSpacing:"1px", marginBottom:"4px" }}>DISCOUNT %</div>
+                    <input type="number" min="0" max="100" step="0.1" value={form.discount} onChange={set("discount")}
+                      style={{ width:"100%", background:T.card, border:`1px solid ${T.border}`, borderRadius:"7px", padding:"7px 10px", color:T.text, fontSize:"13px", textAlign:"right" }} />
                   </div>
-                )}
-                <div style={S.totalFinal}>
+                  <div>
+                    <div style={{ fontSize:"10px", color:T.muted, letterSpacing:"1px", marginBottom:"4px" }}>TAX / VAT %</div>
+                    <input type="number" min="0" max="100" step="0.1" value={form.tax} onChange={set("tax")}
+                      style={{ width:"100%", background:T.card, border:`1px solid ${T.border}`, borderRadius:"7px", padding:"7px 10px", color:T.text, fontSize:"13px", textAlign:"right" }} />
+                  </div>
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between", borderTop:`1px solid ${T.border}`, paddingTop:"12px", marginTop:"4px", fontSize:"18px", fontWeight:700, color:T.gold, fontFamily:"'Space Mono',monospace" }}>
                   <span>TOTAL DUE</span>
-                  <span>{fmt(total, form.currency)}</span>
+                  <span>{fmt(total,form.currency)}</span>
                 </div>
               </div>
-
-              <div style={{ ...S.mb, marginTop:"14px" }}>
-                <label style={S.label}>Notes / Payment Terms</label>
-                <textarea style={S.textarea} rows={3} value={form.notes} onChange={set("notes")} />
-              </div>
-              <button type="button" style={S.btnPrimary}
-                onClick={() => { if (validate()) setTab("preview"); }}>
-                ✅ Validate & Preview
-              </button>
-            </div>
+            </Card>
           )}
 
           {/* PROPOSAL TAB */}
-          {tab === "proposal" && (
-            <div style={S.card}>
-              <div style={S.secTitle}><span style={S.dot}/>AI Proposal Generator</div>
-              <div style={S.mb}>
-                <label style={S.label}>Project Name</label>
-                <input style={S.input} value={form.projectName} onChange={set("projectName")} placeholder="e.g. E-Commerce Website" />
+          {tab==="proposal" && (
+            <Card className="fade-in">
+              <SectionTitle>AI Proposal Generator</SectionTitle>
+              <Input label="Project Name" value={form.projectName||""} onChange={set("projectName")} placeholder="e.g. E-Commerce Website" />
+              <Textarea label="Project Description" value={form.projectDesc||""} onChange={set("projectDesc")} placeholder="Describe deliverables, tech stack, goals…" />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
+                <Input label={`Budget (${form.currency})`} type="number" value={form.budget||""} onChange={set("budget")} placeholder={String(total)} />
+                <Input label="Timeline" value={form.timeline||""} onChange={set("timeline")} placeholder="e.g. 4 weeks" />
               </div>
-              <div style={S.mb}>
-                <label style={S.label}>Project Description</label>
-                <textarea style={S.textarea} rows={4} value={form.projectDesc} onChange={set("projectDesc")} placeholder="Describe deliverables, tech stack, goals…" />
-              </div>
-              <div style={S.row}>
-                <div style={S.col}>
-                  <label style={S.label}>Budget ({form.currency})</label>
-                  {/* FIX 11: placeholder uses String() to avoid toFixed on empty string */}
-                  <input type="number" style={S.input} value={form.budget} onChange={set("budget")} placeholder={String(total)} />
-                </div>
-                <div style={S.col}>
-                  <label style={S.label}>Timeline</label>
-                  <input style={S.input} value={form.timeline} onChange={set("timeline")} placeholder="e.g. 4 weeks" />
-                </div>
-              </div>
-              <button type="button" style={S.btnPrimary} onClick={generateProposal} disabled={aiLoading}>
-                {aiLoading
-                  ? <span style={{ animation:"pulse 1s infinite" }}>✨ Generating…</span>
-                  : "✨ Generate AI Proposal"}
-              </button>
-              {aiErr && <div style={{ color:C.danger, marginTop:"10px", fontSize:"12px" }}>{aiErr}</div>}
-              {(aiLoading || aiText) && (
-                <div style={S.aiBox}>
-                  {aiLoading ? "Crafting your proposal…" : aiText}
+              <Btn variant="primary" style={{ width:"100%" }} onClick={generateProposal} disabled={aiLoading}>
+                {aiLoading ? <span style={{ animation:"pulse 1s infinite" }}>✨ Generating…</span> : "✨ Generate AI Proposal"}
+              </Btn>
+              {aiErr && <div style={{ color:T.red, fontSize:"12px", marginTop:"10px" }}>{aiErr}</div>}
+              {(aiLoading||aiText) && (
+                <div style={{ background:`linear-gradient(135deg,rgba(91,106,240,0.07),rgba(123,89,240,0.04))`, border:`1px solid rgba(91,106,240,0.2)`, borderRadius:"10px", padding:"14px", marginTop:"14px", fontSize:"12px", lineHeight:"1.8", whiteSpace:"pre-wrap", maxHeight:"300px", overflowY:"auto" }}>
+                  {aiLoading?"Crafting your proposal…":aiText}
                 </div>
               )}
-              {aiText && (
-                <button type="button"
-                  style={{ ...S.btnOutline, marginTop:"10px", width:"100%", color: copyOk ? C.success : C.accentHi }}
-                  onClick={handleCopy}>
-                  {copyOk ? "✅ Copied!" : "📋 Copy Proposal"}
-                </button>
-              )}
-            </div>
+            </Card>
           )}
 
           {/* PREVIEW TAB */}
-          {tab === "preview" && (
-            <div style={S.card}>
-              <div style={S.secTitle}><span style={S.dot}/>Print Preview</div>
-              <div ref={printRef} style={S.prev}>
-                <div style={S.prevH}>
+          {tab==="preview" && (
+            <Card className="fade-in">
+              <SectionTitle>Print Preview</SectionTitle>
+              <div ref={printRef} style={{ background:"#fff", color:"#111", borderRadius:"10px", padding:"32px", fontFamily:"Georgia,serif", fontSize:"12px", lineHeight:"1.6" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"24px" }}>
                   <div>
-                    <div style={S.prevTitle}>INVOICE</div>
-                    <div style={{ color:"#888", fontSize:"11px", marginTop:"3px" }}>#{form.invoiceNo}</div>
+                    <div style={{ fontSize:"30px", fontWeight:900, color:"#5b6af0", letterSpacing:"5px", fontFamily:"sans-serif" }}>INVOICE</div>
+                    <div style={{ color:"#888", fontSize:"11px", marginTop:"3px", fontFamily:"monospace" }}>#{form.invoiceNo}</div>
                   </div>
-                  <div style={{ textAlign:"right", fontSize:"11px", lineHeight:"1.8" }}>
+                  <div style={{ textAlign:"right", fontSize:"11px", lineHeight:"1.9" }}>
                     <div><strong>Date:</strong> {form.date}</div>
-                    <div><strong>Due:</strong>  {form.dueDate || "—"}</div>
+                    <div><strong>Due:</strong> {form.dueDate||"—"}</div>
+                    <div style={{ marginTop:"4px" }}><StatusBadge status={form.status}/></div>
                   </div>
                 </div>
-
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"20px", marginBottom:"18px", fontSize:"11px" }}>
-                  {[
-                    ["FROM",    form.fromName, form.fromEmail, form.fromPhone, form.fromAddress],
-                    ["BILL TO", form.toName,   form.toEmail,   form.toPhone,   form.toAddress],
-                  ].map(([label, name, email, phone, addr]) => (
-                    <div key={label}>
-                      <div style={{ fontWeight:"bold", marginBottom:"4px", color:"#5b54e8", fontSize:"10px", letterSpacing:"1px" }}>{label}</div>
-                      <div><strong>{name || "—"}</strong></div>
-                      {email && <div>{email}</div>}
-                      {phone && <div>{phone}</div>}
-                      {addr  && <div style={{ whiteSpace:"pre-line", marginTop:"2px" }}>{addr}</div>}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"20px", marginBottom:"20px", fontSize:"11px" }}>
+                  {[["FROM",form.fromName,form.fromEmail,form.fromPhone,form.fromAddress],
+                    ["BILL TO",form.toName,form.toEmail,form.toPhone,form.toAddress]].map(([lbl,name,email,phone,addr])=>(
+                    <div key={lbl}>
+                      <div style={{ fontWeight:700, color:"#5b6af0", fontSize:"10px", letterSpacing:"1px", marginBottom:"5px" }}>{lbl}</div>
+                      <div><strong>{name||"—"}</strong></div>
+                      {email&&<div>{email}</div>}
+                      {phone&&<div>{phone}</div>}
+                      {addr&&<div style={{ whiteSpace:"pre-line", marginTop:"2px" }}>{addr}</div>}
                     </div>
                   ))}
                 </div>
-
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"11px" }}>
                   <thead>
-                    <tr>
-                      {["Description","Qty","Unit Rate","Amount"].map((h, i) => (
-                        <th key={h} style={{ ...S.prevTh, textAlign: i > 1 ? "right" : "left" }}>{h}</th>
-                      ))}
-                    </tr>
+                    <tr>{["Description","Qty","Rate","Amount"].map((h,i)=>(
+                      <th key={h} style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:i>1?"right":"left", fontSize:"10px", letterSpacing:"1px" }}>{h}</th>
+                    ))}</tr>
                   </thead>
                   <tbody>
-                    {/* FIX 12: show all items with desc OR at least one filled — not silently drop rows */}
-                    {items.filter(it => it.desc.trim() || Number(it.rate) > 0).map((it) => (
+                    {items.filter(it=>it.desc.trim()||Number(it.rate)>0).map(it=>(
                       <tr key={it.id}>
-                        <td style={S.prevTd}>{it.desc || "—"}</td>
-                        <td style={{ ...S.prevTd, textAlign:"right" }}>{it.qty}</td>
-                        <td style={{ ...S.prevTd, textAlign:"right" }}>{fmt(Number(it.rate), form.currency)}</td>
-                        <td style={{ ...S.prevTd, textAlign:"right" }}>{fmt(round2(Number(it.qty)*Number(it.rate)), form.currency)}</td>
+                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0" }}>{it.desc||"—"}</td>
+                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{it.qty}</td>
+                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{fmt(it.rate,form.currency)}</td>
+                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right", fontWeight:600 }}>{fmt(round2(Number(it.qty)*Number(it.rate)),form.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-
-                <div style={{ textAlign:"right", marginTop:"12px", fontSize:"11px", lineHeight:"2" }}>
-                  <div>Subtotal: <strong>{fmt(subtotal, form.currency)}</strong></div>
-                  {Number(form.discount) > 0 && <div style={{ color:"#27ae60" }}>Discount ({form.discount}%): <strong>−{fmt(discAmt, form.currency)}</strong></div>}
-                  {Number(form.tax)      > 0 && <div>Tax/VAT ({form.tax}%): <strong>{fmt(taxAmt, form.currency)}</strong></div>}
-                  <div style={{ fontSize:"16px", marginTop:"6px", color:"#5b54e8", fontWeight:"bold" }}>
-                    Total Due: {fmt(total, form.currency)}
-                  </div>
+                <div style={{ textAlign:"right", marginTop:"14px", fontSize:"11px", lineHeight:"2.2" }}>
+                  <div>Subtotal: <strong>{fmt(subtotal,form.currency)}</strong></div>
+                  {Number(form.discount)>0&&<div style={{ color:"#27ae60" }}>Discount ({form.discount}%): <strong>−{fmt(discAmt,form.currency)}</strong></div>}
+                  {Number(form.tax)>0&&<div>Tax ({form.tax}%): <strong>{fmt(taxAmt,form.currency)}</strong></div>}
+                  <div style={{ fontSize:"18px", color:"#5b6af0", fontWeight:700, marginTop:"6px" }}>Total: {fmt(total,form.currency)}</div>
                 </div>
-
-                {form.notes && (
-                  <div style={{ marginTop:"16px", padding:"10px 14px", background:"#f5f5ff", borderRadius:"6px", fontSize:"11px", borderLeft:"3px solid #5b54e8" }}>
+                {form.notes&&(
+                  <div style={{ marginTop:"18px", padding:"12px", background:"#f5f6ff", borderRadius:"6px", fontSize:"11px", borderLeft:"3px solid #5b6af0" }}>
                     <strong>Notes:</strong> {form.notes}
                   </div>
                 )}
-                {aiText && (
-                  <div style={{ marginTop:"16px", padding:"14px", background:"#f8f5ff", borderRadius:"8px", fontSize:"11px", borderLeft:"3px solid #5b54e8" }}>
-                    <strong style={{ color:"#5b54e8", display:"block", marginBottom:"6px", fontSize:"10px", letterSpacing:"1px" }}>PROJECT PROPOSAL</strong>
+                {aiText&&(
+                  <div style={{ marginTop:"18px", padding:"14px", background:"#f8f5ff", borderRadius:"8px", fontSize:"11px", borderLeft:"3px solid #5b6af0" }}>
+                    <strong style={{ color:"#5b6af0", display:"block", marginBottom:"8px", letterSpacing:"1px", fontSize:"10px" }}>PROJECT PROPOSAL</strong>
                     <div style={{ whiteSpace:"pre-wrap", lineHeight:"1.7" }}>{aiText}</div>
                   </div>
                 )}
               </div>
-            </div>
+            </Card>
           )}
         </div>
 
-        {/* RIGHT */}
-        <div style={{ display:"flex", flexDirection:"column", gap:"20px" }}>
-          <div style={S.card}>
-            <div style={S.secTitle}><span style={S.dot}/>Live Summary</div>
-            {[
-              ["Invoice #", form.invoiceNo || "—", C.accentHi],
-              ["Client",   form.toName    || "—", C.text],
-              ["Due Date", form.dueDate   || "—", C.text],
-              // FIX 13: count only items with desc filled
-              ["Items",    items.filter(it => it.desc.trim()).length, C.text],
-            ].map(([k, v, col]) => (
-              <div key={k} style={{ display:"flex", justifyContent:"space-between", marginBottom:"8px", fontSize:"12px" }}>
-                <span style={{ color:C.muted }}>{k}</span>
-                <span style={{ color:col }}>{v}</span>
+        {/* RIGHT PANEL — summary */}
+        {!isMobile && (
+          <div>
+            <Card style={{ position:"sticky", top:"20px" }}>
+              <SectionTitle>Summary</SectionTitle>
+              {[
+                ["Invoice", form.invoiceNo||"—", T.accentHi],
+                ["Client",  form.toName||"—",    T.text],
+                ["Due",     form.dueDate||"—",    T.text],
+                ["Status",  null,                 null],
+              ].map(([k,v,c])=>(
+                <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px", fontSize:"12px" }}>
+                  <span style={{ color:T.muted }}>{k}</span>
+                  {k==="Status" ? <StatusBadge status={form.status}/> : <span style={{ color:c }}>{v}</span>}
+                </div>
+              ))}
+              <Divider/>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"5px" }}>
+                <span style={{ color:T.muted }}>Subtotal</span><span>{fmt(subtotal,form.currency)}</span>
               </div>
-            ))}
-            <hr style={S.divider}/>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"4px" }}>
-              <span style={{ color:C.muted }}>Subtotal</span><span>{fmt(subtotal, form.currency)}</span>
-            </div>
-            {Number(form.discount) > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"4px" }}>
-                <span style={{ color:C.success }}>Discount</span>
-                <span style={{ color:C.success }}>−{fmt(discAmt, form.currency)}</span>
+              {Number(form.discount)>0&&(
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"5px" }}>
+                  <span style={{ color:T.green }}>Discount</span><span style={{ color:T.green }}>−{fmt(discAmt,form.currency)}</span>
+                </div>
+              )}
+              {Number(form.tax)>0&&(
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"5px" }}>
+                  <span style={{ color:T.muted }}>Tax</span><span>{fmt(taxAmt,form.currency)}</span>
+                </div>
+              )}
+              <div style={{ display:"flex", justifyContent:"space-between", marginTop:"12px", fontSize:"20px", fontWeight:700, color:T.gold, fontFamily:"'Space Mono',monospace" }}>
+                <span>TOTAL</span><span>{fmt(total,form.currency)}</span>
               </div>
-            )}
-            {Number(form.tax) > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"12px", marginBottom:"4px" }}>
-                <span style={{ color:C.muted }}>Tax</span><span>{fmt(taxAmt, form.currency)}</span>
+              <Divider/>
+              <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
+                <Btn variant="green" onClick={()=>handleSave("Paid")} style={{ width:"100%" }}>✅ Mark as Paid</Btn>
+                <Btn variant="primary" onClick={()=>{setTab("preview");}} style={{ width:"100%" }}>👁 Preview</Btn>
+                <Btn variant="outline" onClick={handlePrint} style={{ width:"100%" }}>🖨 Print / PDF</Btn>
+                <Btn variant="ghost" onClick={()=>handleSave("Sent")} style={{ width:"100%" }}>📤 Mark as Sent</Btn>
+                <Btn variant="danger" onClick={()=>{if(confirm("Delete this invoice?"))onDelete(invoice.id);}} style={{ width:"100%" }}>🗑 Delete</Btn>
               </div>
-            )}
-            <div style={{ display:"flex", justifyContent:"space-between", marginTop:"12px", fontSize:"22px", fontWeight:"bold", color:C.gold }}>
-              <span>TOTAL</span><span>{fmt(total, form.currency)}</span>
-            </div>
+            </Card>
           </div>
+        )}
 
-          <div style={S.card}>
-            <div style={S.secTitle}><span style={S.dot}/>Actions</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:"9px" }}>
-              <button type="button" style={S.btnGreen}    onClick={handlePrint}>🖨 Print / Save PDF</button>
-              <button type="button" style={S.btnPrimary}  onClick={() => { if (validate()) setTab("preview"); }}>✅ Validate & Preview</button>
-              <button type="button" style={S.btnOutline}  onClick={() => setTab("proposal")}>✨ AI Proposal</button>
-              <button type="button" style={{ ...S.btnOutline, color:C.muted, borderColor:C.border }} onClick={handleNew}>🗑 New Invoice</button>
-            </div>
+        {/* Mobile bottom actions */}
+        {isMobile && (
+          <div style={{ display:"flex", gap:"8px", flexWrap:"wrap" }}>
+            <Btn variant="green" style={{ flex:1 }} onClick={()=>handleSave()}>💾 Save</Btn>
+            <Btn variant="outline" style={{ flex:1 }} onClick={handlePrint}>🖨 PDF</Btn>
+            <Btn variant="ghost" style={{ flex:1 }} onClick={()=>handleSave("Paid")}>✅ Paid</Btn>
           </div>
-
-          <div style={{ ...S.card, background:`linear-gradient(135deg,rgba(108,99,255,0.06),rgba(155,92,246,0.03))`, border:`1px solid rgba(108,99,255,0.18)` }}>
-            <div style={S.secTitle}><span style={S.dot}/>Quick Guide</div>
-            <div style={{ fontSize:"11px", color:C.muted, lineHeight:"2" }}>
-              <div>① Fill <strong style={{ color:C.text }}>Invoice</strong> tab — info + items</div>
-              <div>② Optionally generate <strong style={{ color:C.text }}>AI Proposal</strong></div>
-              <div>③ <strong style={{ color:C.text }}>Validate & Preview</strong></div>
-              <div>④ <strong style={{ color:C.text }}>Print → Save as PDF</strong></div>
-              <div style={{ marginTop:"8px", color:C.accentHi }}>💡 "New Invoice" auto-increments #</div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════
+let _invNum = 0;
+const nextInvNo = (invoices) => {
+  const nums = invoices.map(i=>parseInt(i.invoiceNo?.replace(/\D/g,""))||0);
+  const max  = nums.length ? Math.max(...nums) : 0;
+  return `INV-${String(max+1).padStart(4,"0")}`;
+};
+
+export default function App() {
+  const [invoices, setInvoices] = useState(()=>LS.get("inv_invoices",[]));
+  const [view, setView]         = useState("dashboard"); // dashboard | editor
+  const [activeId, setActiveId] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth<768);
+
+  useEffect(()=>{
+    const handler = ()=>setIsMobile(window.innerWidth<768);
+    window.addEventListener("resize",handler);
+    return ()=>window.removeEventListener("resize",handler);
+  },[]);
+
+  useEffect(()=>{ LS.set("inv_invoices",invoices); },[invoices]);
+
+  const createNew = () => {
+    const inv = {
+      id: uid(),
+      invoiceNo: nextInvNo(invoices),
+      date: today(), dueDate: addDays(today(),30),
+      fromName:"", fromEmail:"", fromAddress:"", fromPhone:"",
+      toName:"",   toEmail:"",   toAddress:"",   toPhone:"",
+      currency:"USD", tax:"0", discount:"0",
+      notes:"Payment due within 30 days. Thank you for your business.",
+      projectName:"", projectDesc:"", budget:"", timeline:"",
+      items:[newItem()], total:0, subtotal:0,
+      status:"Draft", aiProposal:"",
+      createdAt:Date.now(), updatedAt:Date.now(),
+    };
+    setInvoices(prev=>[inv,...prev]);
+    setActiveId(inv.id);
+    setView("editor");
+  };
+
+  const openInvoice = (id) => { setActiveId(id); setView("editor"); };
+
+  const saveInvoice = (updated) => {
+    setInvoices(prev=>prev.map(i=>i.id===updated.id?updated:i));
+  };
+
+  const deleteInvoice = (id) => {
+    setInvoices(prev=>prev.filter(i=>i.id!==id));
+    setView("dashboard");
+  };
+
+  const activeInvoice = invoices.find(i=>i.id===activeId);
+
+  return (
+    <>
+      <GlobalStyles/>
+      <div style={{ minHeight:"100vh", background:T.bg }}>
+
+        {/* Header */}
+        <header style={{
+          background:`linear-gradient(135deg,${T.surface},#0a0b14)`,
+          borderBottom:`1px solid ${T.border}`,
+          padding: isMobile?"14px 16px":"16px 32px",
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          position:"sticky", top:0, zIndex:100, backdropFilter:"blur(20px)",
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+            {view==="editor" && (
+              <button type="button" onClick={()=>setView("dashboard")}
+                style={{ background:T.card, border:`1px solid ${T.border}`, color:T.muted, borderRadius:"7px", padding:"6px 10px", fontSize:"12px" }}>
+                ←
+              </button>
+            )}
+            <div style={{ fontFamily:"'Space Mono',monospace", fontSize: isMobile?"17px":"21px", fontWeight:700, letterSpacing:"2px", color:T.text }}>
+              INVOICE<span style={{ color:T.accent }}>AI</span>
+              <span style={{ fontFamily:"'Outfit',sans-serif", background:T.accentGlow, border:`1px solid ${T.accent}`, color:T.accentHi, borderRadius:"20px", padding:"2px 8px", fontSize:"10px", marginLeft:"8px", letterSpacing:"1px", fontWeight:600 }}>PRO</span>
+            </div>
+          </div>
+          {view==="dashboard" && (
+            <Btn variant="primary" style={{ padding:"9px 18px", fontSize:"12px" }} onClick={createNew}>
+              + New Invoice
+            </Btn>
+          )}
+        </header>
+
+        {/* Main */}
+        <main style={{ maxWidth:"1200px", margin:"0 auto", padding: isMobile?"16px":"28px 24px" }}>
+          {view==="dashboard" && (
+            <Dashboard invoices={invoices} onNew={createNew} onOpen={openInvoice}/>
+          )}
+          {view==="editor" && activeInvoice && (
+            <InvoiceEditor
+              invoice={activeInvoice}
+              onSave={saveInvoice}
+              onDelete={deleteInvoice}
+              onBack={()=>setView("dashboard")}
+              isMobile={isMobile}
+            />
+          )}
+        </main>
+      </div>
+    </>
   );
 }
