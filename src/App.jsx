@@ -90,35 +90,93 @@ const S = {
 };
 
 // ── ItemRow ───────────────────────────────────────────────────────
-// FIX 4: memo-wrap to stop all items re-rendering on every keystroke
 const ItemRow = ({ item, idx, onChange, onRemove, canRemove, currency, errors }) => {
   const lineTotal = round2(Number(item.qty || 0) * Number(item.rate || 0));
+  const inputStyle = (hasErr) => ({
+    ...S.input,
+    ...(hasErr ? { borderColor: C.danger } : {}),
+    // ensure consistent height regardless of error state below
+    height: "38px",
+    padding: "0 10px",
+  });
   return (
-    <div style={{ display:"grid", gridTemplateColumns:"3fr 72px 100px 80px auto", gap:"6px", alignItems:"start", marginBottom:"8px" }}>
-      <div>
-        <input style={{ ...S.input, ...(errors?.desc ? { borderColor:C.danger } : {}) }}
-          value={item.desc} placeholder="Description"
-          onChange={e => onChange(idx, "desc", e.target.value)} />
-        {errors?.desc && <div style={S.errMsg}>{errors.desc}</div>}
+    <div style={{ marginBottom: errors ? "14px" : "8px" }}>
+      {/* Main row — fixed columns, no overflow */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 70px 90px 78px 32px",
+        gap: "6px",
+        alignItems: "center",
+      }}>
+        {/* Description */}
+        <input
+          style={inputStyle(errors?.desc)}
+          value={item.desc}
+          placeholder="Description"
+          onChange={e => onChange(idx, "desc", e.target.value)}
+        />
+        {/* Qty */}
+        <input
+          type="number"
+          style={{ ...inputStyle(errors?.qty), textAlign: "right" }}
+          value={item.qty}
+          min="0.01"
+          step="0.01"
+          onChange={e => onChange(idx, "qty", e.target.value)}
+        />
+        {/* Rate */}
+        <input
+          type="number"
+          style={{ ...inputStyle(errors?.rate), textAlign: "right" }}
+          value={item.rate}
+          min="0"
+          step="0.01"
+          onChange={e => onChange(idx, "rate", e.target.value)}
+        />
+        {/* Line total — always right-aligned, no wrap */}
+        <div style={{
+          fontSize: "12px",
+          color: C.muted,
+          textAlign: "right",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          lineHeight: "38px",
+        }}>
+          {fmt(lineTotal, currency)}
+        </div>
+        {/* Remove button */}
+        <button
+          type="button"
+          style={{
+            ...S.btnDanger,
+            width: "28px",
+            height: "28px",
+            padding: "0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: canRemove ? 1 : 0.3,
+            flexShrink: 0,
+          }}
+          onClick={() => canRemove && onRemove(idx)}
+          disabled={!canRemove}
+        >✕</button>
       </div>
-      <div>
-        <input type="number" style={{ ...S.input, ...(errors?.qty ? { borderColor:C.danger } : {}) }}
-          value={item.qty} min="0.01" step="0.01"
-          onChange={e => onChange(idx, "qty", e.target.value)} />
-        {errors?.qty && <div style={S.errMsg}>{errors.qty}</div>}
-      </div>
-      <div>
-        <input type="number" style={{ ...S.input, ...(errors?.rate ? { borderColor:C.danger } : {}) }}
-          value={item.rate} min="0" step="0.01"
-          onChange={e => onChange(idx, "rate", e.target.value)} />
-        {errors?.rate && <div style={S.errMsg}>{errors.rate}</div>}
-      </div>
-      <div style={{ paddingTop:"9px", fontSize:"12px", color:C.muted, textAlign:"right" }}>
-        {fmt(lineTotal, currency)}
-      </div>
-      {/* FIX 5: button type="button" prevents accidental form submit */}
-      <button type="button" style={{ ...S.btnDanger, marginTop:"1px", opacity: canRemove ? 1 : 0.3 }}
-        onClick={() => canRemove && onRemove(idx)} disabled={!canRemove}>✕</button>
+      {/* Error messages below — only shown when needed, don't shift grid */}
+      {(errors?.desc || errors?.qty || errors?.rate) && (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 70px 90px 78px 32px",
+          gap: "6px",
+          marginTop: "2px",
+        }}>
+          <div style={S.errMsg}>{errors?.desc || ""}</div>
+          <div style={S.errMsg}>{errors?.qty || ""}</div>
+          <div style={S.errMsg}>{errors?.rate || ""}</div>
+          <div /><div />
+        </div>
+      )}
     </div>
   );
 };
@@ -406,9 +464,9 @@ export default function App() {
 
               <hr style={S.divider}/>
               <div style={S.secTitle}><span style={S.dot}/>Line Items</div>
-              <div style={{ display:"grid", gridTemplateColumns:"3fr 72px 100px 80px auto", gap:"6px", marginBottom:"6px" }} className="item-row">
-                {["Description","Qty","Unit Rate","Amount",""].map(h => (
-                  <div key={h} style={{ fontSize:"10px", color:C.muted, letterSpacing:"1px", textTransform:"uppercase" }}>{h}</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 70px 90px 78px 32px", gap:"6px", marginBottom:"6px" }}>
+                {[["Description","left"],["Qty","right"],["Unit Rate","right"],["Amount","right"],["","right"]].map(([h, align]) => (
+                  <div key={h} style={{ fontSize:"10px", color:C.muted, letterSpacing:"1px", textTransform:"uppercase", textAlign: align }}>{h}</div>
                 ))}
               </div>
               {items.map((it, i) => (
