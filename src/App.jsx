@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS — Notion/Linear inspired
@@ -381,7 +381,7 @@ const Dashboard = ({ invoices, onCreate, onOpen }) => {
 // ─────────────────────────────────────────────
 // INVOICE PRINT TEMPLATE
 // ─────────────────────────────────────────────
-const PrintTemplate = React.forwardRef(({ form, items, totals }, ref) => {
+const PrintTemplate = forwardRef(({ form, items, totals }, ref) => {
   const { sub, disc, taxAmt, total } = totals;
   return (
     <div ref={ref} style={{ background: "#fff", color: "#111", fontFamily: "'Inter',sans-serif", fontSize: "12px", lineHeight: "1.6", padding: "40px" }}>
@@ -733,11 +733,6 @@ const Editor = ({ inv, onSave, onDelete, onBack, isMobile }) => {
     </div>
   );
 };
-
-// ─────────────────────────────────────────────
-// ROOT APP
-// ─────────────────────────────────────────────
-const React = { forwardRef: (fn) => { const C = (p, r) => fn(p, r); C.displayName = fn.displayName; return C; } };
 
 export default function App() {
   const [invs, setInvs]     = useState(() => ls.get("invoices_v3", []));
