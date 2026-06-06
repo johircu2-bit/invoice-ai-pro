@@ -560,17 +560,20 @@ const InvoiceEditor = ({ invoice, clients, onSave, onDelete, onBack, isMobile })
                 </div>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:"11px" }}>
                   <thead>
-                    <tr>{["Description","Qty","Rate","Amount"].map((h,i)=>(
-                      <th key={h} style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:i>1?"right":"left", fontSize:"10px", letterSpacing:"1px" }}>{h}</th>
-                    ))}</tr>
+                    <tr>
+                      <th style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:"left",  fontSize:"10px", letterSpacing:"1px", width:"45%" }}>Description</th>
+                      <th style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:"center",fontSize:"10px", letterSpacing:"1px", width:"10%" }}>Qty</th>
+                      <th style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:"right", fontSize:"10px", letterSpacing:"1px", width:"20%" }}>Rate</th>
+                      <th style={{ background:"#5b6af0", color:"#fff", padding:"8px 10px", textAlign:"right", fontSize:"10px", letterSpacing:"1px", width:"25%" }}>Amount</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {items.filter(it=>it.desc.trim()||Number(it.rate)>0).map(it=>(
+                    {items.filter(it=>it.desc.trim()&&(Number(it.qty)>0||Number(it.rate)>0)).map(it=>(
                       <tr key={it.id}>
-                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0" }}>{it.desc||"—"}</td>
-                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{it.qty}</td>
-                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{fmt(it.rate,form.currency)}</td>
-                        <td style={{ padding:"7px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right", fontWeight:600 }}>{fmt(round2(Number(it.qty)*Number(it.rate)),form.currency)}</td>
+                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0" }}>{it.desc}</td>
+                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"center" }}>{it.qty}</td>
+                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{fmt(Number(it.rate),form.currency)}</td>
+                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right", fontWeight:600 }}>{fmt(round2(Number(it.qty)*Number(it.rate)),form.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
