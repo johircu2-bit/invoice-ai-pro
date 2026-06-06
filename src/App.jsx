@@ -281,21 +281,20 @@ const Dashboard = ({ invoices, onNew, onOpen }) => {
           </div>
         ) : (
           <div>
-            {/* Table header — hidden on mobile */}
-            <div className="hide-mobile" style={{ display:"grid", gridTemplateColumns:"1fr 120px 100px 90px 80px", gap:"12px", padding:"0 8px 10px", borderBottom:`1px solid ${T.border}`, marginBottom:"8px" }}>
-              {["Invoice","Client","Date","Amount","Status"].map(h=>(
-                <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600 }}>{h}</div>
+            {/* Table header */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 140px 110px 90px", gap:"12px", padding:"0 8px 10px", borderBottom:`1px solid ${T.border}`, marginBottom:"8px" }}>
+              {[["Invoice","left"],["Client","left"],["Amount","right"],["Status","left"]].map(([h,a])=>(
+                <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600, textAlign:a }}>{h}</div>
               ))}
             </div>
             {recent.map(inv=>(
               <div key={inv.id} onClick={()=>onOpen(inv.id)}
-                style={{ display:"grid", gridTemplateColumns:"1fr 120px 100px 90px 80px", gap:"12px", padding:"10px 8px", borderRadius:"8px", cursor:"pointer", transition:"background 0.15s", alignItems:"center" }}
+                style={{ display:"grid", gridTemplateColumns:"1fr 140px 110px 90px", gap:"12px", padding:"10px 8px", borderRadius:"8px", cursor:"pointer", transition:"background 0.15s", alignItems:"center" }}
                 onMouseEnter={e=>e.currentTarget.style.background=T.cardHi}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <div style={{ fontWeight:600, fontSize:"13px" }}>{inv.invoiceNo}</div>
+                <div style={{ fontWeight:600, fontSize:"13px", fontFamily:"'Space Mono',monospace" }}>{inv.invoiceNo}</div>
                 <div style={{ color:T.muted, fontSize:"12px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.toName||"—"}</div>
-                <div style={{ color:T.muted, fontSize:"12px" }} className="hide-mobile">{inv.date}</div>
-                <div style={{ fontWeight:600, fontFamily:"'Space Mono',monospace", fontSize:"12px" }}>{fmt(inv.total, inv.currency)}</div>
+                <div style={{ fontWeight:600, fontFamily:"'Space Mono',monospace", fontSize:"12px", textAlign:"right" }}>{fmt(inv.total, inv.currency)}</div>
                 <div><StatusBadge status={inv.status} /></div>
               </div>
             ))}
@@ -350,10 +349,20 @@ const InvoiceEditor = ({ invoice, clients, onSave, onDelete, onBack, isMobile })
     const w = window.open("","_blank");
     if (!w) { alert("Allow popups to print/save PDF"); return; }
     w.document.write(`<!DOCTYPE html><html><head><title>${form.invoiceNo}</title>
-    <style>*{box-sizing:border-box}body{margin:0;padding:24px;font-family:'Outfit',Georgia,serif;font-size:12px;color:#111}
-    table{width:100%;border-collapse:collapse}th{background:#5b6af0;color:#fff;padding:8px 10px;text-align:left;font-size:10px}
-    td{padding:8px 10px;border-bottom:1px solid #eee}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    @media print{body{padding:12px}}</style></head>
+    <style>
+      *{box-sizing:border-box}
+      body{margin:0;padding:28px;font-family:Georgia,serif;font-size:12px;color:#111}
+      table{width:100%;border-collapse:collapse;margin:12px 0}
+      th{background:#5b6af0;color:#fff;padding:8px 12px;font-size:10px;letter-spacing:1px;text-transform:uppercase}
+      th.left{text-align:left}th.right{text-align:right}th.center{text-align:center}
+      td{padding:8px 12px;border-bottom:1px solid #eee}
+      td.right{text-align:right}td.center{text-align:center}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+      .label{font-size:10px;color:#5b6af0;letter-spacing:1px;text-transform:uppercase;font-weight:700;margin-bottom:5px}
+      .total-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+      .grand-total{font-size:18px;font-weight:700;color:#5b6af0;border-top:2px solid #5b6af0;padding-top:8px;margin-top:8px}
+      @media print{body{padding:14px}}
+    </style></head>
     <body>${printRef.current.innerHTML}</body></html>`);
     w.document.close(); w.focus(); setTimeout(()=>w.print(),300);
   };
@@ -459,7 +468,7 @@ const InvoiceEditor = ({ invoice, clients, onSave, onDelete, onBack, isMobile })
               {!isMobile && (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 80px 100px 90px 32px", gap:"6px", marginBottom:"8px", padding:"0 2px" }}>
                   {[["Description","left"],["Qty","right"],["Rate","right"],["Amount","right"],["",""]].map(([h,a])=>(
-                    <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600, textAlign:a }}>{h}</div>
+                    <div key={h} style={{ fontSize:"10px", color:T.muted, letterSpacing:"1.5px", textTransform:"uppercase", fontWeight:600, textAlign:a, padding:"0 10px" }}>{h}</div>
                   ))}
                 </div>
               )}
@@ -570,10 +579,10 @@ const InvoiceEditor = ({ invoice, clients, onSave, onDelete, onBack, isMobile })
                   <tbody>
                     {items.filter(it=>it.desc.trim()&&(Number(it.qty)>0||Number(it.rate)>0)).map(it=>(
                       <tr key={it.id}>
-                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0" }}>{it.desc}</td>
-                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"center" }}>{it.qty}</td>
-                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{fmt(Number(it.rate),form.currency)}</td>
-                        <td style={{ padding:"8px 10px", borderBottom:"1px solid #f0f0f0", textAlign:"right", fontWeight:600 }}>{fmt(round2(Number(it.qty)*Number(it.rate)),form.currency)}</td>
+                        <td style={{ padding:"9px 12px", borderBottom:"1px solid #f0f0f0", textAlign:"left" }}>{it.desc}</td>
+                        <td style={{ padding:"9px 12px", borderBottom:"1px solid #f0f0f0", textAlign:"center" }}>{it.qty}</td>
+                        <td style={{ padding:"9px 12px", borderBottom:"1px solid #f0f0f0", textAlign:"right" }}>{fmt(Number(it.rate),form.currency)}</td>
+                        <td style={{ padding:"9px 12px", borderBottom:"1px solid #f0f0f0", textAlign:"right", fontWeight:700 }}>{fmt(round2(Number(it.qty)*Number(it.rate)),form.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
