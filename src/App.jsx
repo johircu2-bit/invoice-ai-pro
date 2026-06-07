@@ -302,8 +302,22 @@ const Dashboard = ({ invoices, onCreate, onOpen }) => {
   const revenue = paid.reduce((s, i) => s + (i.total || 0), 0);
   const sorted  = [...invoices].sort((a, b) => b.updatedAt - a.updatedAt);
 
+  const GUMROAD = "https://falthochale.gumroad.com/l/invoiceai-pro";
+
   return (
     <div className="fade">
+      {/* Pro Upgrade Banner */}
+      <div style={{ background:"linear-gradient(135deg,rgba(79,127,255,0.1),rgba(79,127,255,0.03))", border:`1px solid rgba(79,127,255,0.22)`, borderRadius:"8px", padding:"14px 20px", marginBottom:"20px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:"12px" }}>
+        <div>
+          <div style={{ fontSize:"13px", fontWeight:600, color:C.text, marginBottom:"2px" }}>⚡ Upgrade to InvoiceAI Pro</div>
+          <div style={{ fontSize:"12px", color:C.textSub }}>Unlimited invoices · AI proposals · Priority support — <strong style={{ color:C.accent }}>$9/month</strong></div>
+        </div>
+        <a href={GUMROAD} target="_blank" rel="noopener noreferrer"
+          style={{ background:C.accent, color:"#fff", borderRadius:"6px", padding:"8px 18px", fontSize:"12px", fontWeight:600, textDecoration:"none", whiteSpace:"nowrap" }}>
+          Upgrade to Pro →
+        </a>
+      </div>
+
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1px", background: C.border, border: `1px solid ${C.border}`, borderRadius: "8px", overflow: "hidden", marginBottom: "24px" }}>
         {[
@@ -785,6 +799,10 @@ export default function App() {
           {view === "dash" && (
             <Button variant="primary" size="sm" onClick={createInv}>+ New Invoice</Button>
           )}
+          <a href="https://falthochale.gumroad.com/l/invoiceai-pro" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize:"11px", fontWeight:600, color:C.accent, textDecoration:"none", border:`1px solid rgba(79,127,255,0.3)`, borderRadius:"5px", padding:"5px 10px", letterSpacing:"0.02em" }}>
+            Pro ⚡
+          </a>
         </header>
 
         {/* Main */}
