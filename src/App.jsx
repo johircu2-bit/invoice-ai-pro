@@ -302,7 +302,7 @@ const Dashboard = ({ invoices, onCreate, onOpen }) => {
   const revenue = paid.reduce((s, i) => s + (i.total || 0), 0);
   const sorted  = [...invoices].sort((a, b) => b.updatedAt - a.updatedAt);
 
-  const GUMROAD = "https://falthochale.gumroad.com/l/invoiceai-pro";
+  const GUMROAD = "https://johirxdev.gumroad.com/l/invoiceai-pro";
 
   return (
     <div className="fade">
@@ -799,7 +799,7 @@ export default function App() {
           {view === "dash" && (
             <Button variant="primary" size="sm" onClick={createInv}>+ New Invoice</Button>
           )}
-          <a href="https://falthochale.gumroad.com/l/invoiceai-pro" target="_blank" rel="noopener noreferrer"
+          <a href="https://johirxdev.gumroad.com/l/invoiceai-pro" target="_blank" rel="noopener noreferrer"
             style={{ fontSize:"11px", fontWeight:600, color:C.accent, textDecoration:"none", border:`1px solid rgba(79,127,255,0.3)`, borderRadius:"5px", padding:"5px 10px", letterSpacing:"0.02em" }}>
             Pro ⚡
           </a>
