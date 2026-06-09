@@ -303,6 +303,11 @@ const Dashboard = ({ invoices, onCreate, onOpen }) => {
   const sorted  = [...invoices].sort((a, b) => b.updatedAt - a.updatedAt);
 
   const GUMROAD = "https://johirxdev.gumroad.com/l/invoiceai-pro";
+  const FREE_LIMIT = 5;
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const thisMonthCount = invoices.filter(i => i.createdAt >= startOfMonth).length;
+  const remaining = Math.max(0, FREE_LIMIT - thisMonthCount);
 
   return (
     <div className="fade">
@@ -310,7 +315,13 @@ const Dashboard = ({ invoices, onCreate, onOpen }) => {
       <div style={{ background:"linear-gradient(135deg,rgba(79,127,255,0.1),rgba(79,127,255,0.03))", border:`1px solid rgba(79,127,255,0.22)`, borderRadius:"8px", padding:"14px 20px", marginBottom:"20px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:"12px" }}>
         <div>
           <div style={{ fontSize:"13px", fontWeight:600, color:C.text, marginBottom:"2px" }}>⚡ Upgrade to InvoiceAI Pro</div>
-          <div style={{ fontSize:"12px", color:C.textSub }}>Unlimited invoices · AI proposals · Priority support — <strong style={{ color:C.accent }}>$9/month</strong></div>
+          <div style={{ fontSize:"12px", color:C.textSub }}>
+            {remaining > 0
+              ? <span>Free plan: <strong style={{ color: remaining <= 2 ? "#ff6b6b" : C.accent }}>{remaining} invoice{remaining !== 1 ? "s" : ""} left</strong> this month · Unlimited with Pro</span>
+              : <span style={{ color:"#ff6b6b" }}>⚠️ Free limit reached! Upgrade for unlimited invoices</span>
+            }
+            {" "}· AI proposals · Priority support — <strong style={{ color:C.accent }}>$9/month</strong>
+          </div>
         </div>
         <a href={GUMROAD} target="_blank" rel="noopener noreferrer"
           style={{ background:C.accent, color:"#fff", borderRadius:"6px", padding:"8px 18px", fontSize:"12px", fontWeight:600, textDecoration:"none", whiteSpace:"nowrap" }}>
@@ -762,7 +773,25 @@ export default function App() {
 
   useEffect(() => { ls.set("invoices_v3", invs); }, [invs]);
 
+  const FREE_LIMIT = 5;
+
+  const getThisMonthCount = (invoiceList) => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    return invoiceList.filter(i => i.createdAt >= startOfMonth).length;
+  };
+
   const createInv = () => {
+    const thisMonthCount = getThisMonthCount(invs);
+    if (thisMonthCount >= FREE_LIMIT) {
+      const confirmed = window.confirm(
+        "🔒 Free Plan Limit Reached!\n\nYou\'ve created " + FREE_LIMIT + " invoices this month.\n\nUpgrade to Pro ($9/month) for:\n✅ Unlimited invoices\n✅ AI Proposal Generator\n✅ Priority support\n\nClick OK to upgrade now!"
+      );
+      if (confirmed) {
+        window.open("https://johirxdev.gumroad.com/l/invoiceai-pro", "_blank");
+      }
+      return;
+    }
     const inv = {
       id: uid(), num: nextNum(invs),
       date: today(), dueDate: due30(today()),
